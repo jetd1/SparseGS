@@ -254,11 +254,19 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
 
     with open(os.path.join(path, transformsfile)) as json_file:
         contents = json.load(json_file)
-        fovx = contents["camera_angle_x"]
+
+        if "camera_angle_x" in contents:
+            fovx = contents["camera_angle_x"]
+        else:
+            fovx = None
 
         frames = contents["frames"]
         for idx, frame in enumerate(frames):
-            cam_name = os.path.join(path, frame["file_path"] + extension)
+
+            if "." in os.path.basename(frame["file_path"]):
+                cam_name = os.path.join(path, frame["file_path"])
+            else:
+                cam_name = os.path.join(path, frame["file_path"] + extension)
 
             # NeRF 'transform_matrix' is a camera-to-world transform
             c2w = np.array(frame["transform_matrix"])
@@ -282,21 +290,33 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
             image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
 
-            fovy = focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
-            FovY = fovy 
-            FovX = fovx
+            depth_path = os.path.join(path, 'depths', image_name + '.npy')
+            depth = np.load(depth_path)
 
-            cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
+            if fovx is not None:
+                fovy = focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
+                FovY = fovy
+                FovX = fovx
+            else:
+                FovX = frame["camera_angle_x"]
+                FovY = frame["camera_angle_y"]
+
+            cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image, depth=depth,
                             image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
-            
+
     return cam_infos
 
+
 def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
-    print("Reading Training Transforms")
-    train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, extension)
-    print("Reading Test Transforms")
-    test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension)
-    
+    if os.path.exists(os.path.join(path, "nuwa_db.json")):
+        train_cam_infos = readCamerasFromTransforms(path, "nuwa_db.json", white_background, extension)
+        test_cam_infos = readCamerasFromTransforms(path, "nuwa_db.json", white_background, extension)
+    else:
+        print("Reading Training Transforms")
+        train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, extension)
+        print("Reading Test Transforms")
+        test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension)
+
     if not eval:
         train_cam_infos.extend(test_cam_infos)
         test_cam_infos = []
@@ -308,7 +328,7 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
         # Since this data set has no colmap data, we start with random points
         num_pts = 100_000
         print(f"Generating random point cloud ({num_pts})...")
-        
+
         # We create random points inside the bounds of the synthetic Blender scenes
         xyz = np.random.random((num_pts, 3)) * 2.6 - 1.3
         shs = np.random.random((num_pts, 3)) / 255.0
@@ -323,6 +343,7 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
     scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
+                           hold_cameras=[],
                            nerf_normalization=nerf_normalization,
                            ply_path=ply_path)
     return scene_info

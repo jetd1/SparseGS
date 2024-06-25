@@ -46,8 +46,13 @@ class Scene:
         self.ft_cameras = {}
         self.ellipse_params = {}
 
-        if os.path.exists(os.path.join(args.source_path, "sparse")):
-            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval, step=step, max_cameras=max_cameras, load_depth=(not args.no_load_depth))
+        can_init_from_colmap = (os.path.exists(os.path.join(args.source_path, "sparse/0/points3D.bin"))
+                                and os.path.getsize(os.path.join(args.source_path, "sparse/0/points3D.bin")) > 8)
+        if can_init_from_colmap:
+            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval)
+        elif os.path.exists(os.path.join(args.source_path, "nuwa_db.json")):
+            print("Found nuwa_db.json file, assuming nuwa data set!")
+            scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval)
